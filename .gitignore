@@ -30,6 +30,14 @@ next-env.d.ts
 dist/
 dist
 
+# Environment files / secrets (keep local, never commit)
+.env
+**/.env
+.env.local
+**/.env.local
+.env.*.local
+**/.env.*.local
+
 # Environment files (comprehensive coverage)
 
 *token.json*
