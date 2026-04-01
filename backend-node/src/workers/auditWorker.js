@@ -1,9 +1,11 @@
 import { Worker } from "bullmq";
+import { loadEnv } from "../utils/loadEnv.js";
 
 import { connectMongo } from "../database/mongo.js";
 import { AuditJob } from "../database/models/AuditJob.js";
 import { Contract } from "../database/models/Contract.js";
 import { AuditReport } from "../database/models/AuditReport.js";
+import { DeadLetterJob } from "../database/models/DeadLetterJob.js";
 
 import { runAuditPipeline } from "../services/auditPipeline.js";
 import { analyzeNonSolidity } from "../analyzers/nonSolidityAnalyzer.js";
@@ -12,8 +14,11 @@ import { generateAiRecommendations } from "../services/aiReportGenerator.js";
 import { getRedisConnection } from "../queue/redis.js";
 import { runSlitherTemp } from "../utils/slitherRunner.js";
 import { getGasCost } from "../../scripts/getGasCost.js";
+import { logger } from "../utils/logger.js";
 
 const MAX_CONCURRENCY = Number(process.env.MAX_CONCURRENT_JOBS || 5);
+
+loadEnv();
 
 export function startAuditWorker() {
   const connection = getRedisConnection();
@@ -159,16 +164,44 @@ export function startAuditWorker() {
       await connectMongo();
       const jobId = job?.data?.jobId || job?.id;
       if (jobId) {
+        const attemptsAllowed = Number(job?.opts?.attempts || 1);
+        const attemptsMade = Number(job?.attemptsMade || 0);
+        const isTerminalFailure = attemptsMade >= attemptsAllowed;
+
         await AuditJob.updateOne(
           { jobId },
           {
             $set: {
-              status: "failed",
+              status: isTerminalFailure ? "failed" : "queued",
               error: err?.message || String(err),
+              progress: isTerminalFailure ? 100 : 0,
               updatedAt: new Date(),
             },
           }
         );
+
+        if (isTerminalFailure) {
+          await DeadLetterJob.create({
+            originalJobId: String(job?.id || jobId),
+            userId: job?.data?.userId || null,
+            data: job?.data || {},
+            error: err?.message || String(err),
+            attemptsMade,
+            failedAt: new Date(),
+          });
+
+          logger.warn("job_moved_to_dlq", {
+            jobId: String(job?.id || jobId),
+            attemptsMade,
+            error: err?.message || String(err),
+          });
+        } else {
+          logger.info("job_retry_scheduled", {
+            jobId: String(job?.id || jobId),
+            attemptsMade,
+            attemptsAllowed,
+          });
+        }
       }
     } catch (e) {
       console.error("Failed to persist job failure:", e);

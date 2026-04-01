@@ -3,6 +3,9 @@ import multer from "multer";
 
 import { applySecurity } from "./security.js";
 import { logger } from "../../src/utils/logger.js";
+import { loadEnv } from "../../src/utils/loadEnv.js";
+
+loadEnv();
 
 export function createApp() {
   const app = express();

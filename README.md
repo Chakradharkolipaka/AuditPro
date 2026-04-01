@@ -178,6 +178,19 @@ pip install slither-analyzer
 
 > Note: the current pipeline includes the module but keeps Slither execution conservative. You can extend `auditPipeline` to write temp files and run Slither safely.
 
+## Unified environment configuration
+
+Use a single root `.env.local` for local development. Backend loads this file automatically.
+
+Mirror the same values into:
+
+- Vercel project environment variables (frontend + API)
+- Worker host/container environment variables
+
+Core keys include:
+
+`MONGODB_URI`, `UPSTASH_REDIS_URL`, `UPSTASH_REDIS_TOKEN`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `MAX_WAITING_JOBS`, `MAX_SOURCE_BYTES`, `PIPELINE_VERSION`, `MODEL_VERSION`.
+
 ## Production deployment (Vercel + MongoDB Atlas + Upstash)
 
 ### Environment variables (Vercel)
@@ -240,6 +253,16 @@ Returns:
 
 Returns job status and includes `report` when completed.
 
+### GET `/api/audit` (history with server-side filters)
+
+Query params:
+
+- `language`
+- `protocol`
+- `fromDate` / `toDate` (ISO datetime)
+- `sortBy` (`createdAt|securityScore|language|protocol`)
+- `sortOrder` (`asc|desc`)
+
 ### POST `/api/chat`
 
 ```json
@@ -253,6 +276,10 @@ Requires `Authorization: Bearer <firebase-id-token>`.
 Returns authenticated user profile from MongoDB.
 
 ### POST `/api/auth/wallet`
+### GET `/api/dlq`
+
+Returns dead-letter jobs (requires authentication; can be restricted via `ADMIN_EMAILS`).
+
 
 Body:
 
@@ -291,7 +318,21 @@ curl -s -X POST http://localhost:3000/api/audit \
 
 # poll job
 curl -s "http://localhost:3000/api/audit?jobId=<JOB_ID>"
+
+# filtered history
+curl -s "http://localhost:3000/api/audit?language=solidity&protocol=EVM&sortBy=securityScore&sortOrder=desc"
+
+# dead letter queue (DLQ)
+curl -s "http://localhost:3000/api/dlq"
 ```
+
+## GitHub workflow permission fix
+
+If push is rejected with:
+
+`refusing to allow a Personal Access Token to create or update workflow ... without workflow scope`
+
+Use a token that includes `repo` and `workflow` scopes, or push via SSH.
 
 ## Training with LoRA (ai-training)
 

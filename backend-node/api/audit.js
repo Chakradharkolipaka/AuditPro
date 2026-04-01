@@ -12,6 +12,7 @@ import { getAuditQueue, MAX_WAITING_JOBS } from "../src/queue/auditQueue.js";
 import { AuditJob } from "../src/database/models/AuditJob.js";
 import { AuditReport } from "../src/database/models/AuditReport.js";
 import { User } from "../src/database/models/User.js";
+import { logger } from "../src/utils/logger.js";
 
 export const config = {
   api: {
@@ -110,10 +111,6 @@ app.post("/api/audit", requireAuth, upload.single("file"), async (req, res) => {
       language,
       protocol,
       sourceCode,
-    },
-    {
-      attempts: 1,
-      backoff: { type: "fixed", delay: 1000 },
     }
   );
 
@@ -128,31 +125,49 @@ app.post("/api/audit", requireAuth, upload.single("file"), async (req, res) => {
 
 // GET /api/audit?jobId=... OR ?contractHash=...
 app.get("/api/audit", requireAuth, async (req, res) => {
-  await connectMongo();
+  try {
+    await connectMongo();
 
-  const { jobId, contractHash } = req.query;
-  const userId = req.user.uid;
+    const { jobId, contractHash, language, protocol, fromDate, toDate, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+    const userId = req.user.uid;
 
-  if (jobId) {
-    const job = await AuditJob.findOne({ jobId: String(jobId), userId }).lean();
-  if (!job) return res.status(404).json({ code: "JOB_NOT_FOUND", message: "Job not found" });
+    if (jobId) {
+      const job = await AuditJob.findOne({ jobId: String(jobId), userId }).lean();
+      if (!job) return res.status(404).json({ code: "JOB_NOT_FOUND", message: "Job not found" });
 
-    if (job.status === "completed") {
-      const report = await AuditReport.findOne({ contractHash: job.contractHash, userId }).sort({ createdAt: -1 }).lean();
-      return res.json({ status: job.status, job, report });
+      if (job.status === "completed") {
+        const report = await AuditReport.findOne({ contractHash: job.contractHash, userId }).sort({ createdAt: -1 }).lean();
+        return res.json({ status: job.status, job, report });
+      }
+
+      return res.json({ status: job.status, job });
     }
 
-    return res.json({ status: job.status, job });
-  }
+    if (contractHash) {
+      const report = await AuditReport.findOne({ contractHash: String(contractHash), userId }).sort({ createdAt: -1 }).lean();
+      if (!report) return res.status(404).json({ code: "REPORT_NOT_FOUND", message: "Report not found" });
+      return res.json({ status: "completed", contractHash: String(contractHash), report });
+    }
 
-  if (contractHash) {
-    const report = await AuditReport.findOne({ contractHash: String(contractHash), userId }).sort({ createdAt: -1 }).lean();
-  if (!report) return res.status(404).json({ code: "REPORT_NOT_FOUND", message: "Report not found" });
-    return res.json({ status: "completed", contractHash: String(contractHash), report });
-  }
+    const query = { userId };
+    if (language) query.language = String(language);
+    if (protocol) query.protocol = String(protocol);
+    if (fromDate || toDate) {
+      query.createdAt = {};
+      if (fromDate) query.createdAt.$gte = new Date(String(fromDate));
+      if (toDate) query.createdAt.$lte = new Date(String(toDate));
+    }
 
-  const history = await AuditReport.find({ userId }).sort({ createdAt: -1 }).limit(50).lean();
-  return res.json({ status: "ok", history });
+    const allowSort = new Set(["createdAt", "securityScore", "language", "protocol"]);
+    const resolvedSortBy = allowSort.has(String(sortBy)) ? String(sortBy) : "createdAt";
+    const sort = { [resolvedSortBy]: String(sortOrder) === "asc" ? 1 : -1 };
+
+    const history = await AuditReport.find(query).sort(sort).limit(50).lean();
+    return res.json({ status: "ok", history });
+  } catch (error) {
+    logger.error("history_query_failed", { error: error?.message || String(error) });
+    return res.status(500).json({ code: "QUERY_FAILED", message: "Failed to fetch audit history" });
+  }
 });
 
 attachErrorHandler(app);

@@ -2,11 +2,11 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import dotenv from "dotenv";
 
 import apiRoutes from "./routes/api.js";
+import { loadEnv } from "./utils/loadEnv.js";
 
-dotenv.config();
+loadEnv();
 
 const app = express();
 

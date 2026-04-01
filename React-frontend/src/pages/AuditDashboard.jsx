@@ -78,8 +78,20 @@ export default function AuditDashboard() {
     if (!idToken) return;
     const loadHistory = async () => {
       try {
+        const params = {
+          sortBy: "securityScore",
+          sortOrder: sortDescRisk ? "desc" : "asc",
+        };
+        if (languageFilter) params.language = languageFilter;
+        if (protocolFilter) params.protocol = protocolFilter;
+        if (dateFilter) {
+          params.fromDate = `${dateFilter}T00:00:00.000Z`;
+          params.toDate = `${dateFilter}T23:59:59.999Z`;
+        }
+
         const res = await apiClient.get(`/audit`, {
           headers: { Authorization: `Bearer ${idToken}` },
+          params,
         });
         setHistory(Array.isArray(res.data?.history) ? res.data.history : []);
       } catch {
@@ -87,33 +99,13 @@ export default function AuditDashboard() {
       }
     };
     loadHistory();
-  }, [idToken]);
+  }, [idToken, languageFilter, protocolFilter, dateFilter, sortDescRisk]);
 
   const authHeaders = useMemo(() => {
     return idToken ? { Authorization: `Bearer ${idToken}` } : {};
   }, [idToken]);
 
-  const filteredHistory = useMemo(() => {
-    let rows = [...history];
-
-    if (languageFilter) rows = rows.filter((r) => (r.language || "") === languageFilter);
-    if (protocolFilter) rows = rows.filter((r) => (r.protocol || "") === protocolFilter);
-    if (dateFilter) {
-      rows = rows.filter((r) => {
-        const d = new Date(r.createdAt);
-        const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        return local === dateFilter;
-      });
-    }
-
-    rows.sort((a, b) => {
-      const av = Number(a.securityScore ?? 0);
-      const bv = Number(b.securityScore ?? 0);
-      return sortDescRisk ? bv - av : av - bv;
-    });
-
-    return rows;
-  }, [history, languageFilter, protocolFilter, dateFilter, sortDescRisk]);
+  const filteredHistory = useMemo(() => history, [history]);
 
   const pollJob = async (jobId) => {
     const started = Date.now();
@@ -179,7 +171,15 @@ export default function AuditDashboard() {
 
       toast("Audit queued", { description: "Processing… this can take up to ~20s." });
       await pollJob(jobId);
-      const historyRes = await apiClient.get(`/audit`, { headers: authHeaders });
+      const historyRes = await apiClient.get(`/audit`, {
+        headers: authHeaders,
+        params: {
+          sortBy: "securityScore",
+          sortOrder: sortDescRisk ? "desc" : "asc",
+          ...(languageFilter ? { language: languageFilter } : {}),
+          ...(protocolFilter ? { protocol: protocolFilter } : {}),
+        },
+      });
   setHistory(Array.isArray(historyRes.data?.history) ? historyRes.data.history : []);
       toast.success("Analysis complete", { description: "Review vulnerabilities, gas tips, and recommendations." });
     } catch (e) {
