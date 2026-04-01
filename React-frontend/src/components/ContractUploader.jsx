@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Upload, FileText } from "lucide-react";
+import { toast } from "@/components/ui/sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * ContractUploader
- * - Input: user selects a .sol file OR pastes Solidity code
+ * - Input: user selects a supported contract file (.sol/.rs/.move/.mo...) OR pastes code
  * - Output: calls onUpload({ filename, source })
  */
 export default function ContractUploader({ onUpload, isBusy }) {
@@ -15,11 +16,14 @@ export default function ContractUploader({ onUpload, isBusy }) {
   const [dragOver, setDragOver] = useState(false);
   const [source, setSource] = useState("");
   const [filename, setFilename] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
 
   const readFile = async (file) => {
     const text = await file.text();
     setFilename(file.name);
     setSource(text);
+    const ext = (file.name.split(".").pop() || "").toUpperCase();
+    if (ext) toast(`Detected ${ext} contract source`);
   };
 
   const onDrop = useCallback(async (e) => {
@@ -33,7 +37,12 @@ export default function ContractUploader({ onUpload, isBusy }) {
   const submit = async () => {
     const trimmed = source.trim();
     if (!trimmed) return;
-    await onUpload?.({ filename: filename || "Contract.sol", source: trimmed });
+    setIsUploading(true);
+    try {
+      await onUpload?.({ filename: filename || "Contract.sol", source: trimmed });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -43,7 +52,7 @@ export default function ContractUploader({ onUpload, isBusy }) {
           <FileText className="h-5 w-5" /> Upload contract
         </CardTitle>
         <CardDescription>
-          Drop a <span className="font-medium">.sol</span> file or paste the code. We’ll generate an explainable risk summary (not a professional audit).
+          Drop a <span className="font-medium">.sol/.rs/.move/.mo</span> file (and other supported extensions) or paste source code.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -69,7 +78,7 @@ export default function ContractUploader({ onUpload, isBusy }) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".sol,.txt"
+                accept=".sol,.rs,.move,.mo,.fc,.cairo,.txt"
                 className="hidden"
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
@@ -81,16 +90,24 @@ export default function ContractUploader({ onUpload, isBusy }) {
                 type="button"
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isBusy}
+                disabled={isBusy || isUploading}
               >
                 Choose file
               </Button>
-              <Button type="button" onClick={submit} disabled={isBusy || !source.trim()}>
+              <Button type="button" onClick={submit} disabled={isBusy || isUploading || !source.trim()}>
                 Analyze
               </Button>
             </div>
             {filename ? (
               <div className="text-xs text-muted-foreground">Selected: {filename}</div>
+            ) : null}
+            {isUploading ? (
+              <div className="w-full max-w-xs mt-2">
+                <div className="h-2 rounded bg-muted overflow-hidden">
+                  <div className="h-full w-2/3 bg-primary animate-pulse" />
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1">Uploading and queueing audit…</div>
+              </div>
             ) : null}
           </div>
         </div>

@@ -1,0 +1,57 @@
+name: CI + Vercel Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install backend deps
+        working-directory: backend-node
+        run: npm ci
+
+      - name: Lint backend
+        working-directory: backend-node
+        run: npm run lint
+
+      - name: Test backend
+        working-directory: backend-node
+        run: npm test
+
+      - name: Install frontend deps
+        working-directory: React-frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: React-frontend
+        run: npm run build
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
